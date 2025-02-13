@@ -1,16 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useSession, signIn } from 'next-auth/react';
 
 const ImageUploader = () => {
+  const { data: session, status, update } = useSession();
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [analysis, setAnalysis] = useState(null);
-  const [uploadsRemaining, setUploadsRemaining] = useState(5);
+  const [uploadsRemaining, setUploadsRemaining] = useState<number | null>(0);
   const [currentMarkupIndex, setCurrentMarkupIndex] = useState(0);
-  
   const canvasRefs = useRef([]);
+  console.log(session); 
+  useEffect(() => {
+    setUploadsRemaining(session?.user.dailyAnalysisRemaining);
+  }, [session])
 
   const handleFile = (file) => {
     if (file && file.type.startsWith('image/')) {
@@ -121,8 +126,74 @@ const ImageUploader = () => {
     }
   };
 
+  // useEffect(() => {
+  //   if (session?.user?.uploadsRemaining !== undefined) {
+  //     setUploadsRemaining(session.user.uploadsRemaining);
+  //   }
+  // }, [session]);
+
+  // const handleSubmit = async () => {
+  //   if (!file || loading || !uploadsRemaining || uploadsRemaining <= 0) return;
+
+  //   setLoading(true);
+  //   setError('');
+
+  //   try {
+  //     const formData = new FormData();
+  //     formData.append("file", file);
+
+  //     const response = await fetch("http://localhost:8080/v1/image-analysis", {
+  //       method: "POST",
+  //       body: formData,
+  //       credentials: "include",
+  //       headers: {
+  //         user: JSON.stringify(session?.user),
+  //       },
+  //     });
+
+  //     if (response.status === 429) {
+  //       throw new Error("Daily upload limit reached. Please upgrade to continue.");
+  //     }
+
+  //     if (!response.ok) throw new Error("Analysis failed");
+
+  //     // Update both session and local state
+  //     const newUploadsRemaining = uploadsRemaining - 1;
+  //     setUploadsRemaining(newUploadsRemaining);
+
+  //     // await update({
+  //     //   ...session,
+  //     //   user: {
+  //     //     ...session.user,
+  //     //     uploadsRemaining: newUploadsRemaining,
+  //     //   },
+  //     // });
+  //   } catch (err) {
+  //     setError(err.message || "An unexpected error occurred");
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
+  // useEffect(() => {
+  //   const updateSession = async () => {
+  //     if (!session) return; 
+  
+  //     await update({
+  //       ...session,
+  //       user: {
+  //         ...session.user,
+  //         dailyAnalysisCount: uploadsRemaining + 1,
+  //       },
+  //     });
+  //   };
+  
+  //   updateSession(); 
+  // }, [uploadsRemaining]); 
+  
+
   const handleSubmit = async () => {
-    if (!file || loading) return;
+    if (!file || loading || !session) return;
 
     setLoading(true);
     setError('');
@@ -134,20 +205,46 @@ const ImageUploader = () => {
       const response = await fetch('http://localhost:8080/v1/image-analysis', {
         method: 'POST',
         body: formData,
+        credentials: 'include',
+        headers: {
+          user: JSON.stringify(session.user)
+        },
       });
+
+      if (response.status === 429) {
+        throw new Error('Daily upload limit reached. Please upgrade to continue.');
+      }
 
       if (!response.ok) throw new Error('Analysis failed');
 
       const result = await response.json();
       setAnalysis(result);
+      
       setUploadsRemaining(prev => prev - 1);
-      setCurrentMarkupIndex(0);
     } catch (err) {
       setError(err.message || 'An unexpected error occurred');
     } finally {
       setLoading(false);
     }
   };
+
+  if (status === 'loading') {
+    return <div>Loading...</div>;
+  }
+
+  if (!session) {
+    return (
+      <div className="text-center py-12">
+        <h2 className="text-2xl font-bold mb-4">Sign in to analyze images</h2>
+        <button
+          onClick={() => signIn('google')}
+          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
+        >
+          Sign in with Google
+        </button>
+      </div>
+    );
+  }
 
   const getScoreRating = (score) => {
     if (score >= 9) return { text: 'Excellent', color: 'bg-green-500' };
@@ -156,6 +253,8 @@ const ImageUploader = () => {
     if (score >= 3) return { text: 'Needs Improvement', color: 'bg-orange-500' };
     return { text: 'Poor', color: 'bg-red-500' };
   };
+
+
 
   const ScoreIndicator = ({ score, label }) => {
     const [isVisible, setIsVisible] = useState(false);
